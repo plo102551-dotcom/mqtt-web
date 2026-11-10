@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP8266 & DHT11 - IoT Dashboard Giám Sát Nhiệt Độ & Độ Ẩm</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Chart.js for real-time telemetry graphing -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- MQTT.js - Thư viện chuẩn kết nối MQTT qua WebSocket trong Trình duyệt -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+    <!-- Hiệu ứng hào quang nền (Glow Effect) -->
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+    <div class="bg-glow bg-glow-3"></div>
+
+    <div class="dashboard-wrapper">
+        <!-- HEADER TRUNG TÂM ĐIỀU KHIỂN -->
+        <header class="dashboard-header">
+            <div class="header-brand">
+                <div class="brand-logo">
+                    <i class="fa-solid fa-wifi-slash" id="brandStatusIcon"></i>
+                </div>
+                <div class="brand-titles">
+                    <div class="brand-title-wrap">
+                        <h1>ESP8266 & DHT11 MONITOR</h1>
+                        <span class="badge-tech">MQTT REALTIME</span>
+                    </div>
+                    <p class="brand-desc">Giám sát số liệu Cảm biến qua Broker EMQX Cloud • Cập nhật trực tiếp</p>
+                </div>
+            </div>
+
+            <!-- THANH TRẠNG THÁI KẾT NỐI -->
+            <div class="header-status-panel">
+                <div class="status-pill" id="connectionStatusPill">
+                    <span class="status-dot disconnected" id="statusDot"></span>
+                    <span class="status-label" id="statusText">Đang chuẩn bị...</span>
+                </div>
+
+                <div class="meta-pill" title="MQTT Broker Host">
+                    <i class="fa-solid fa-server"></i>
+                    <span id="metaHostText">wd817fa2...emqxsl.com</span>
+                </div>
+
+                <div class="meta-pill" title="MQTT Subscribed Topic">
+                    <i class="fa-solid fa-hashtag"></i>
+                    <span id="metaTopicText">esp8266/dht11</span>
+                </div>
+
+                <div class="header-actions">
+                    <button class="btn-action btn-primary" id="btnConnectToggle" title="Bật/Tắt kết nối">
+                        <i class="fa-solid fa-plug"></i> <span id="btnConnectText">Kết nối</span>
+                    </button>
+                    <button class="btn-action btn-warning" id="btnSimulate" title="Gửi gói tin giả lập lên topic để kiểm tra">
+                        <i class="fa-solid fa-paper-plane"></i> <span>Gửi tin Test</span>
+                    </button>
+                    <button class="btn-action btn-outline" id="btnOpenConfig" title="Cấu hình kết nối MQTT">
+                        <i class="fa-solid fa-sliders"></i> <span>Cấu hình</span>
+                    </button>
+                    <button class="btn-action btn-outline" id="btnOpenCodeGuide" title="Xem mã nạp ESP8266 Arduino">
+                        <i class="fa-solid fa-code"></i> <span>Code ESP</span>
+                    </button>
+                    <button class="btn-action btn-icon-only" id="btnThemeToggle" title="Đổi giao diện Sáng / Tối">
+                        <i class="fa-solid fa-sun"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- BANNER THÔNG TIN GIAO THỨC CỔNG WEBSOCKET -->
+        <div class="notice-banner">
+            <div class="notice-icon"><i class="fa-solid fa-circle-info"></i></div>
+            <div class="notice-content">
+                <strong>Lưu ý về cổng kết nối:</strong> Trên vi điều khiển ESP8266 sử dụng cổng TCP TLS <code>8883</code>. Trong trình duyệt Web (HTML/JS), kết nối sử dụng giao thức <strong>WebSocket Secure (WSS)</strong> qua cổng <code>8084</code> (đường dẫn <code>/mqtt</code>). Cả 2 cùng trỏ tới chung 1 broker EMQX Cloud!
+            </div>
+            <button class="notice-close" onclick="this.parentElement.style.display='none'"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <!-- MAIN DASHBOARD CONTENT -->
+        <main class="dashboard-main">
+            <!-- PHẦN 1: CÁC THẺ METRIC VÀ ĐỒNG HỒ ĐO (GAUGES & METRICS) -->
+            <section class="metrics-grid">
+                <!-- THẺ 1: NHIỆT ĐỘ (TEMPERATURE) -->
+                <div class="metric-card temp-card">
+                    <div class="card-header">
+                        <div class="header-info">
+                            <span class="card-tag">CẢM BIẾN DHT11</span>
+                            <h3>Nhiệt Độ (Temperature)</h3>
+                        </div>
+                        <div class="metric-icon temp-bg">
+                            <i class="fa-solid fa-temperature-half"></i>
+                        </div>
+                    </div>
+
+                    <div class="gauge-display-container">
+                        <!-- Đồng hồ vòng nhiệt độ -->
+                        <div class="radial-gauge">
+                            <svg viewBox="0 0 160 160" class="gauge-svg">
+                                <circle class="gauge-bg" cx="80" cy="80" r="68"></circle>
+                                <circle class="gauge-bar temp-bar" id="tempGaugeBar" cx="80" cy="80" r="68"></circle>
+                            </svg>
+                            <div class="gauge-center-content">
+                                <div class="gauge-val" id="tempVal">--</div>
+                                <div class="gauge-unit">°C</div>
+                            </div>
+                        </div>
+
+                        <!-- Thông số phụ -->
+                        <div class="metric-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Đánh giá</span>
+                                <span class="badge-status status-normal" id="tempStatus">Đang chờ tin</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Cao nhất / Thấp nhất</span>
+                                <span class="stat-val"><span id="tempMax">--</span> / <span id="tempMin">--</span> °C</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Đơn vị quy đổi</span>
+                                <span class="stat-val"><span id="tempFahrenheit">--</span> °F</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Thanh mức độ trực quan -->
+                    <div class="range-meter-wrapper">
+                        <div class="meter-labels">
+                            <span>0°C</span>
+                            <span>25°C</span>
+                            <span>50°C</span>
+                            <span>100°C</span>
+                        </div>
+                        <div class="meter-track">
+                            <div class="meter-fill temp-fill" id="tempRangeFill" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- THẺ 2: ĐỘ ẨM (HUMIDITY) -->
+                <div class="metric-card hum-card">
+                    <div class="card-header">
+                        <div class="header-info">
+                            <span class="card-tag">CẢM BIẾN DHT11</span>
+                            <h3>Độ Ẩm Không Khí (Humidity)</h3>
+                        </div>
+                        <div class="metric-icon hum-bg">
+                            <i class="fa-solid fa-droplet"></i>
+                        </div>
+                    </div>
+
+                    <div class="gauge-display-container">
+                        <!-- Đồng hồ vòng độ ẩm -->
+                        <div class="radial-gauge">
+                            <svg viewBox="0 0 160 160" class="gauge-svg">
+                                <circle class="gauge-bg" cx="80" cy="80" r="68"></circle>
+                                <circle class="gauge-bar hum-bar" id="humGaugeBar" cx="80" cy="80" r="68"></circle>
+                            </svg>
+                            <div class="gauge-center-content">
+                                <div class="gauge-val" id="humVal">--</div>
+                                <div class="gauge-unit">% RH</div>
+                            </div>
+                        </div>
+
+                        <!-- Thông số phụ -->
+                        <div class="metric-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Trạng thái</span>
+                                <span class="badge-status status-ideal" id="humStatus">Đang chờ tin</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Cao nhất / Thấp nhất</span>
+                                <span class="stat-val"><span id="humMax">--</span> / <span id="humMin">--</span> %</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Môi trường</span>
+                                <span class="stat-val" id="humEnvDesc">Chưa có số liệu</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Thanh mức độ trực quan -->
+                    <div class="range-meter-wrapper">
+                        <div class="meter-labels">
+                            <span>0% (Khô)</span>
+                            <span>40%</span>
+                            <span>70% (Lý tưởng)</span>
+                            <span>100% (Ẩm ướt)</span>
+                        </div>
+                        <div class="meter-track">
+                            <div class="meter-fill hum-fill" id="humRangeFill" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- THẺ 3: CHỈ SỐ MÔI TRƯỜNG MỞ RỘNG (HEAT INDEX & DEW POINT) -->
+                <div class="metric-card calc-card">
+                    <div class="card-header">
+                        <div class="header-info">
+                            <span class="card-tag">PHÂN TÍCH CHUYÊN SÂU</span>
+                            <h3>Chỉ Số Tiện Nghi Môi Trường</h3>
+                        </div>
+                        <div class="metric-icon calc-bg">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                        </div>
+                    </div>
+
+                    <div class="calc-metrics-list">
+                        <div class="calc-row">
+                            <div class="calc-left">
+                                <i class="fa-solid fa-sun-plant-wilt"></i>
+                                <div>
+                                    <div class="calc-title">Chỉ số cảm giác (Heat Index)</div>
+                                    <div class="calc-subtitle">Nhiệt độ cơ thể thực nhận thức</div>
+                                </div>
+                            </div>
+                            <div class="calc-right">
+                                <span class="calc-val" id="heatIndexVal">--</span>
+                                <span class="calc-unit">°C</span>
+                            </div>
+                        </div>
+
+                        <div class="calc-row">
+                            <div class="calc-left">
+                                <i class="fa-solid fa-cloud-showers-heavy"></i>
+                                <div>
+                                    <div class="calc-title">Điểm đọng sương (Dew Point)</div>
+                                    <div class="calc-subtitle">Nhiệt độ hơi nước ngưng tụ</div>
+                                </div>
+                            </div>
+                            <div class="calc-right">
+                                <span class="calc-val" id="dewPointVal">--</span>
+                                <span class="calc-unit">°C</span>
+                            </div>
+                        </div>
+
+                        <div class="calc-row">
+                            <div class="calc-left">
+                                <i class="fa-solid fa-envelope-open-text"></i>
+                                <div>
+                                    <div class="calc-title">Tổng số gói tin nhận</div>
+                                    <div class="calc-subtitle">Chu kỳ truyền từ ESP8266</div>
+                                </div>
+                            </div>
+                            <div class="calc-right">
+                                <span class="calc-val" id="packetCountVal">0</span>
+                                <span class="calc-unit">tin</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="last-seen-box">
+                        <i class="fa-regular fa-clock"></i>
+                        <span>Cập nhật lần cuối: <strong id="lastReceivedTime">Chưa nhận bản tin nào</strong></span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PHẦN 2: BIỂU ĐỒ THỜI GIAN THỰC & RAW JSON PAYLOAD -->
+            <section class="chart-and-payload-grid">
+                <!-- KHỐI BIỂU ĐỒ (REAL-TIME CHART) -->
+                <div class="panel-card chart-panel">
+                    <div class="panel-header">
+                        <div class="panel-title-group">
+                            <i class="fa-solid fa-chart-line"></i>
+                            <div>
+                                <h2>Biểu Đồ Biến Thiên Thời Gian Thực</h2>
+                                <p class="panel-subtitle">Theo dõi diễn biến Nhiệt độ & Độ ẩm kèm các đường kẻ chuẩn & đường dóng tọa độ</p>
+                            </div>
+                        </div>
+                        <div class="panel-actions">
+                            <button class="btn-sm active" id="btnToggleLines" title="Bật/Tắt các đường kẻ chuẩn">
+                                <i class="fa-solid fa-lines-leaning"></i> <span>Đường kẻ chuẩn</span>
+                            </button>
+                            <button class="btn-sm active" id="btnToggleCrosshair" title="Bật/Tắt đường dóng theo trỏ chuột">
+                                <i class="fa-solid fa-crosshairs"></i> <span>Đường dóng chuột</span>
+                            </button>
+                            <button class="btn-sm" id="btnClearChart" title="Làm mới lại biểu đồ">
+                                <i class="fa-solid fa-rotate-left"></i> <span>Xóa biểu đồ</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- THANH CHÚ GIẢI CÁC ĐƯỜNG KẺ TRANG TRÍ -->
+                    <div class="chart-guide-pills">
+                        <span class="guide-pill" title="Ngưỡng nhiệt độ cảnh báo nóng">
+                            <span class="guide-dash dash-red"></span> 35°C Ngưỡng nhiệt cao
+                        </span>
+                        <span class="guide-pill" title="Nhiệt độ phòng lý tưởng">
+                            <span class="guide-dash dash-green"></span> 26°C Nhiệt độ tối ưu
+                        </span>
+                        <span class="guide-pill" title="Độ ẩm không khí thoải mái">
+                            <span class="guide-dash dash-blue"></span> 60% Độ ẩm lý tưởng
+                        </span>
+                        <span class="guide-pill" title="Ngưỡng không khí khô">
+                            <span class="guide-dash dash-amber"></span> 40% Ngưỡng khô hanh
+                        </span>
+                        <span class="guide-pill" title="Đường xu hướng trung bình trượt">
+                            <span class="guide-dash dash-gold"></span> Đường xu hướng (MA-5)
+                        </span>
+                        <span class="guide-pill pill-crosshair" title="Rê chuột vào biểu đồ để dóng tọa độ">
+                            <i class="fa-solid fa-crosshairs"></i> Trục dóng trỏ chuột
+                        </span>
+                    </div>
+
+                    <div class="chart-wrapper">
+                        <canvas id="telemetryChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- KHỐI XEM GÓI TIN RAW JSON MỚI NHẤT -->
+                <div class="panel-card payload-panel">
+                    <div class="panel-header">
+                        <div class="panel-title-group">
+                            <i class="fa-solid fa-code"></i>
+                            <div>
+                                <h2>Gói Tin MQTT (Raw JSON)</h2>
+                                <p class="panel-subtitle">Dữ liệu gốc nhận được từ topic <code>esp8266/dht11</code></p>
+                            </div>
+                        </div>
+                        <div class="panel-badge-pill" id="payloadFormatBadge">
+                            <i class="fa-solid fa-brackets-curly"></i> JSON Format
+                        </div>
+                    </div>
+
+                    <div class="code-terminal-box">
+                        <div class="terminal-bar">
+                            <div class="term-dots">
+                                <span class="term-dot red"></span>
+                                <span class="term-dot yellow"></span>
+                                <span class="term-dot green"></span>
+                            </div>
+                            <span class="term-title">Topic: esp8266/dht11</span>
+                            <button class="btn-copy" id="btnCopyJson" title="Sao chép JSON"><i class="fa-regular fa-copy"></i></button>
+                        </div>
+                        <pre class="terminal-code" id="rawJsonCode"><code>// Đang chờ dữ liệu từ ESP8266...
+// Định dạng JSON mong đợi:
+{
+  "temperature": "78.00",
+  "humidity": "78.00"
+}</code></pre>
+                    </div>
+
+                    <!-- TEST PUBLISHER TOOL NGAY TẠI PANEL -->
+                    <div class="quick-sim-tool">
+                        <div class="sim-tool-title"><i class="fa-solid fa-flask"></i> Bộ test phát tin nhanh (Client Publisher)</div>
+                        <div class="sim-inputs">
+                            <div class="sim-field">
+                                <label>Nhiệt độ test (°C):</label>
+                                <input type="number" id="simTempInput" value="29.5" step="0.5">
+                            </div>
+                            <div class="sim-field">
+                                <label>Độ ẩm test (%):</label>
+                                <input type="number" id="simHumInput" value="68.0" step="1">
+                            </div>
+                            <button class="btn-action btn-primary" id="btnPublishCustom" style="align-self: flex-end;">
+                                <i class="fa-solid fa-paper-plane"></i> Publish Test
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PHẦN 3: BẢNG LỊCH SỬ DỮ LIỆU ĐO ĐẠC (HISTORY TELEMETRY TABLE) -->
+            <section class="table-section">
+                <div class="panel-card">
+                    <div class="panel-header">
+                        <div class="panel-title-group">
+                            <i class="fa-solid fa-list-check"></i>
+                            <div>
+                                <h2>Bảng Nhật Ký Gói Tin (Telemetry History)</h2>
+                                <p class="panel-subtitle">Lưu trữ các lần đo mới nhất kèm thời gian và đánh giá ngưỡng</p>
+                            </div>
+                        </div>
+                        <div class="panel-actions">
+                            <span class="record-counter" id="recordCounter">0 bản ghi</span>
+                            <button class="btn-sm" id="btnExportCsv" title="Tải xuống dữ liệu dạng CSV">
+                                <i class="fa-solid fa-download"></i> Xuất CSV
+                            </button>
+                            <button class="btn-sm btn-danger" id="btnClearHistory" title="Xóa toàn bộ lịch sử">
+                                <i class="fa-solid fa-trash-can"></i> Xóa bảng
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="telemetry-table" id="historyTable">
+                            <thead>
+                                <tr>
+                                    <th># STT</th>
+                                    <th>Thời Gian Nhận</th>
+                                    <th>Topic</th>
+                                    <th>Nhiệt Độ (°C)</th>
+                                    <th>Độ Ẩm (% RH)</th>
+                                    <th>Chỉ Số Cảm Nhận</th>
+                                    <th>Đánh Giá Cảm Biến</th>
+                                    <th>Gói Tin JSON Gốc</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyTableBody">
+                                <tr class="empty-row">
+                                    <td colspan="8">
+                                        <div class="empty-state">
+                                            <i class="fa-solid fa-tower-broadcast"></i>
+                                            <p>Chưa có gói tin nào được gửi tới. Khi ESP8266 gửi dữ liệu lên topic <code>esp8266/dht11</code>, các dòng sẽ xuất hiện tại đây.</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- FOOTER -->
+        <footer class="dashboard-footer">
+            <p>© 2026 ESP8266 & DHT11 Realtime Dashboard • Giao thức MQTT over WebSocket (WSS: 8084) • EMQX Cloud</p>
+        </footer>
+    </div>
+
+    <!-- MODAL 1: CẤU HÌNH THÔNG SỐ BROKER MQTT -->
+    <div class="modal-backdrop" id="modalConfig">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-sliders"></i> Cài Đặt Kết Nối MQTT Broker</h3>
+                <button class="modal-close" id="btnCloseConfigModal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-desc">
+                    Thông số kết nối mặc định đã được cấu hình theo yêu cầu. Bạn có thể thay đổi để kết nối tới broker khác nếu cần.
+                </p>
+
+                <div class="form-group">
+                    <label for="cfgHost">MQTT Server Host (WSS / WS)</label>
+                    <input type="text" id="cfgHost" class="form-input" value="wd817fa2.ala.asia-southeast1.emqxsl.com">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="cfgPort">Port Web (WSS)</label>
+                        <input type="number" id="cfgPort" class="form-input" value="8084">
+                        <small class="form-hint">8084 cho WSS (Bảo mật Web), 8083 cho WS</small>
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="cfgPath">Đường dẫn WebSocket Path</label>
+                        <input type="text" id="cfgPath" class="form-input" value="/mqtt">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="cfgUser">MQTT Username</label>
+                        <input type="text" id="cfgUser" class="form-input" value="iot">
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="cfgPass">MQTT Password</label>
+                        <input type="password" id="cfgPass" class="form-input" value="P557724">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="cfgTopic">Topic Theo Dõi (Subscribe)</label>
+                        <input type="text" id="cfgTopic" class="form-input" value="esp8266/dht11">
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="cfgClientId">Client ID Tiền tố</label>
+                        <input type="text" id="cfgClientId" class="form-input" value="dashboard_web">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-action btn-outline" id="btnResetDefaultConfig">Khôi phục mặc định</button>
+                <button class="btn-action btn-primary" id="btnSaveConfig">Lưu & Kết Nối Lại</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: MÃ NGUỒN MẪU ARDUINO C++ CHO ESP8266 & DHT11 -->
+    <div class="modal-backdrop" id="modalCodeGuide">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-code"></i> Mã Nguồn Mẫu Nạp Vào ESP8266 (Arduino C++)</h3>
+                <button class="modal-close" id="btnCloseCodeModal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-desc">
+                    Đây là mã Arduino C++ chuẩn sử dụng thư viện <code>PubSubClient</code> và <code>DHT sensor library</code> để gửi gói tin JSON đúng mẫu <code>{"temperature":"..", "humidity":".."}</code> lên EMQX qua cổng TCP MQTTS <code>8883</code>.
+                </p>
+                <div class="code-terminal-box">
+                    <div class="terminal-bar">
+                        <span class="term-title">ESP8266_EMQX_DHT11.ino</span>
+                        <button class="btn-copy" id="btnCopyArduinoCode" title="Sao chép mã nguồn"><i class="fa-regular fa-copy"></i> Sao chép</button>
+                    </div>
+                    <pre class="terminal-code" id="arduinoCodeSnippet"><code>#include &lt;ESP8266WiFi.h&gt;
+#include &lt;WiFiClientSecure.h&gt;
+#include &lt;PubSubClient.h&gt;
+#include &lt;DHT.h&gt;
+
+// --- CẤU HÌNH WIFI ---
+const char* ssid = "TEN_WIFI_CUA_BAN";
+const char* password = "MAT_KHAU_WIFI";
+
+// --- CẤU HÌNH EMQX BROKER ---
+const char* mqtt_server = "wd817fa2.ala.asia-southeast1.emqxsl.com";
+const int mqtt_port = 8883;             // Cổng MQTTS TCP trên ESP8266
+const char* mqtt_user = "iot";          // MQTT username
+const char* mqtt_pass = "P557724";      // MQTT password
+const char* mqtt_topic = "esp8266/dht11";
+
+// --- CẤU HÌNH DHT11 ---
+#define DHTPIN D4        // Chân Data của DHT11 nối chân D4 (GPIO2)
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+WiFiClientSecure espClient;
+PubSubClient client(espClient);
+
+unsigned long lastMsg = 0;
+
+void setup_wifi() {
+  delay(10);
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi connected! IP: " + WiFi.localIP().toString());
+  
+  // Bỏ qua kiểm tra chứng chỉ SSL (thích hợp cho ESP8266)
+  espClient.setInsecure();
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection to EMQX...");
+    String clientId = "ESP8266Client-" + String(random(0xffff), HEX);
+    if (client.connect(clientId.c_str(), mqtt_user, mqtt_pass)) {
+      Serial.println("CONNECTED!");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  setup_wifi();
+  client.setServer(mqtt_server, mqtt_port);
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  // Gửi số liệu mỗi 5 giây
+  unsigned long now = millis();
+  if (now - lastMsg > 5000) {
+    lastMsg = now;
+
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+
+    if (isnan(h) || isnan(t)) {
+      Serial.println("Lỗi đọc cảm biến DHT11!");
+      return;
+    }
+
+    // Đóng gói dạng JSON đúng yêu cầu:
+    // {"temperature":"78.00", "humidity":"78.00"}
+    char jsonBuffer[100];
+    snprintf(jsonBuffer, sizeof(jsonBuffer), 
+             "{\"temperature\":\"%.2f\", \"humidity\":\"%.2f\"}", t, h);
+
+    Serial.print("Publishing message: ");
+    Serial.println(jsonBuffer);
+    client.publish(mqtt_topic, jsonBuffer);
+  }
+}</code></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST THÔNG BÁO NỔI -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- JAVASCRIPT LOGIC CHÍNH -->
+    <script src="script.js"></script>
+</body>
+</html>
